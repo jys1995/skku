@@ -1,0 +1,530 @@
+library("rpart")
+library("rpart.plot")
+library("crayon")
+####################################################################################################
+## kk > 1  
+## red   : mis-classified data weight more
+## green : basic model
+## blue  : well-classified data weight more
+####################################################################################################
+## kk > 1  
+## red   : mis-classified data weight more
+## green : basic model
+## blue  : well-classified data weight more
+####################################################################################################
+data <- read.csv("C:/Users/jeon/Desktop/lab/data/breast-cancer-wisconsin.csv", TRUE)
+
+
+mm<<-list()
+
+
+depth = 20
+interval = 0.1
+X_where = 1:9
+y_where = 10
+how_many = 100
+result_h <- list()
+result_b <- list()
+X <- data[, X_where]
+y <- data[, y_where]
+
+####################################################################################################
+predict.adaboost <- function(object, X, type = c("response", "prob"),
+                             n_tree = NULL, ...){
+  # handle args
+  type <- match.arg(type)
+  
+  if(is.null(n_tree)){
+    
+    tree_seq <- seq_along(object$alphas)
+    
+  } else{
+    
+    if(n_tree > length(object$alpha))
+      
+      stop('n_tree must be less than the number of trees used in fit')
+    
+    tree_seq <- seq(1, n_tree)
+    
+  }
+  
+  # evaluate score function on sample
+  f <- 0
+  
+  for(i in tree_seq){
+    
+    tree       <- object$trees[[i]]
+    
+    tree$terms <- object$terms
+    
+    pred       <- as.integer(as.character(stats::predict(tree, data.frame(X),
+                                                         type = "class")))
+    f          <- f + object$alphas[i] * pred
+    
+  }
+  
+  # handle response type
+  if(type == "response"){
+    
+    sign(f)
+    
+  } else if(type == "prob"){
+    
+    1/(1+exp(-2*f))
+    
+  }
+  
+}
+heuristic_adaboost <- function(X, y, n_rounds = 100, 
+                               control = rpart.control(cp = -1, maxdepth = 1)){
+  
+  # count the number of rows
+  n      <- nrow(X)  
+  w <- rep(1/n, n)
+  trees  <- list()
+  alphas <- list()
+  rules <- list()
+  for(i in seq(n_rounds)){
+    tree <- rpart::rpart(y ~ ., 
+                         data = data.frame(X), weights = w,
+                         method = "class", control = control, 
+                         x = FALSE, y = FALSE, model = TRUE)
+    
+    rule <- rpart.rules(tree)
+    pred <- as.integer(as.character(stats::predict(tree, data.frame(X), type = "class")))
+    
+    # weighted error rate
+    e    <- sum(w * (pred != y))
+    
+    if(e >= 0.5){
+      
+      e <- 1 - e
+    }
+    
+    else{
+      
+      e <- e
+      
+    }
+    
+    if (kkk[i] == 1){ #more weight in mis
+      
+      
+      alpha <- (1/(2 * mm[[i]])) * log(((1-e)/e))
+      # update weight of each data
+      
+      for (tt in 1:length(w)){
+        if (alpha*pred[tt]*y[tt] > 0){
+          w[tt] <- w[tt] * (exp((-mm[[i]]*alpha)))
+        }
+        else{
+          w[tt] <- w[tt] * (exp((mm[[i]]*alpha)))
+        }
+      }
+    }
+    
+    if (kkk[i] == 2){
+      
+      alpha <- (1/ (2*(1/mm[[i]]))) * log(((1-e)/e))
+      
+      
+      # update weight of each data
+      
+      for (tt in 1:length(w)){
+        if (alpha*pred[tt]*y[tt] > 0){
+          w[tt] <- w[tt] * (exp((1/mm[[i]])*(-alpha)))
+        }
+        else{
+          w[tt] <- w[tt] * (exp((1/mm[[i]])*(alpha)))
+        }
+      }
+    }
+    w     <- w / sum(w)
+    
+    
+    # If classifier's error rate is nearly 0, boosting process ends
+    if(abs(e) < 1e-5){
+      
+      # if first base classifier predicts data perfectly, boosting process ends
+      if(i == 1){
+        
+        trees[[i]]  <- tree
+        
+        rules[[i]] <- rule
+        # first base classifier's weight should be 1
+        alphas[[i]] <- 1
+        
+        terms       <- tree$terms
+        
+        break
+        
+      }
+      
+      break
+    }
+    
+    
+    
+    # Remove formulas since they waste memory
+    if(i == 1){
+      
+      terms       <- tree$terms
+      
+    } else{
+      
+      tree$terms <- NULL
+      
+    }
+    
+    trees[[i]]  <- tree
+    rules[[i]] <- rule
+    
+    alphas[[i]] <- alpha
+    
+  }
+  
+  out        <- list(alphas = unlist(alphas), 
+                     trees = trees, 
+                     terms = terms,
+                     rules = rules)
+  
+  class(out) <- "adaboost"
+  
+  # create confusion matrix for in-sample fits
+  y_hat                <- stats::predict(out, X)
+  
+  out$confusion_matrix <- table(y, y_hat)
+  
+  out
+  
+}
+
+basic_adaboost <- function(X, y, n_rounds = 100, 
+                           control = rpart.control(cp = -1, maxdepth = 1)){
+  
+  # count the number of rows
+  n      <- nrow(X)  
+  w <- rep(1/n, n)
+  trees  <- list()
+  alphas <- list()
+  rules <- list()
+  
+  
+  
+  for(i in seq(n_rounds)){
+    
+    tree <- rpart::rpart(y ~ ., 
+                         data = data.frame(X), weights = w,
+                         method = "class", control = control, 
+                         x = FALSE, y = FALSE, model = TRUE)
+    
+    rule <- rpart.rules(tree)
+    pred <- as.integer(as.character(stats::predict(tree, data.frame(X), type = "class")))
+    
+    
+    e    <- sum(w * (pred != y))
+    
+    if(e >= 0.5){
+      
+      e <- 1 - e
+    }
+    
+    else{
+      
+      e <- e
+      
+    }
+    # learning rate(weight) of each classifiers
+    alpha <- 1/2 * log((1-e)/e)
+    
+    # update weight of each data
+    w     <- w * exp(-alpha*pred*y)
+    
+    # normalize weight of each data
+    w     <- w / sum(w)
+    
+    # If classifier's error rate is nearly 0, boosting process ends
+    if(abs(e) < 1e-5){
+      
+      # if first base classifier predicts data perfectly, boosting process ends
+      if(i == 1){
+        
+        trees[[i]]  <- tree
+        
+        rules[[i]] <- rule
+        # first base classifier's weight should be 1
+        alphas[[i]] <- 1
+        
+        terms       <- tree$terms
+        
+        break
+        
+      }
+      
+      break
+    }
+    
+    
+    
+    # Remove formulas since they waste memory
+    if(i == 1){
+      
+      terms       <- tree$terms
+      
+    } else{
+      
+      tree$terms <- NULL
+      
+    }
+    
+    trees[[i]]  <- tree
+    rules[[i]] <- rule
+    
+    alphas[[i]] <- alpha
+    
+    
+  }
+  
+  
+  
+  
+  
+  out        <- list(alphas = unlist(alphas), 
+                     trees = trees, 
+                     terms = terms,
+                     rules = rules)
+  
+  class(out) <- "adaboost"
+  
+  # create confusion matrix for in-sample fits
+  y_hat                <- stats::predict(out, X)
+  
+  out$confusion_matrix <- table(y, y_hat)
+  
+  out
+  
+}
+
+
+kf1 <- function(tt){
+  data    <- data
+  
+  # cross validation using adaboost to predict class of iris
+  k       <- 5
+  ##########ggogogogogogo
+  set.seed(1) 
+  data$id <- sample(1:k, nrow(data), replace = TRUE)
+  
+  list    <- 1:k
+  # data frame reset
+  
+  
+  prediction_hm <- testset_copy_hm <- data.frame()
+  
+  #function for k fold
+  for(i in 1:k){
+    
+    # remove rows with id i from dataframe to create training set
+    # select rows with id i to create test set
+    trainset     <- subset(data, id %in% list[-i])
+    
+    testset      <- subset(data, id %in% c(i))
+    
+    
+    
+    #run a adaboost model
+    model_hm      <- heuristic_adaboost(trainset[, X_where], trainset[, y_where], n_rounds = tt)  
+    
+    temp_hm         <- as.data.frame(predict(model_hm, testset))
+    
+    # 예측값을 예측 데이터 프레임의 끝에 추가.
+    prediction_hm   <- rbind(prediction_hm, temp_hm)
+    
+    # 실제값(testset) testsetCopy에 추가.
+    
+    testset_copy_hm <- rbind(testset_copy_hm, as.data.frame(testset[, y_where]))
+    
+    # 예측값과 실제값 데이터프레임.
+    # add predictions and actual Sepal Length values
+    result_hm            <- cbind(prediction_hm, testset_copy_hm[, 1])
+    
+    
+    names(result_hm)     <- c("Actual", "Predicted")
+    
+    confusion_matrix_hm  <- table(result_hm$Actual, result_hm$Predicted )
+    
+    accuracy_hm          <- sum(diag(confusion_matrix_hm)) / sum(confusion_matrix_hm)
+    
+    result_hm            <- list("confusion_matrix_hm " = confusion_matrix_hm, "accuracy_hm" = accuracy_hm)
+    
+  }  
+  temp2 <<- (result_hm$accuracy_hm)
+  
+  return (temp2)
+}
+
+kf2 <- function(tt){
+  data    <- data
+  
+  # cross validation using adaboost to predict class of iris
+  k       <- 5
+  ##########ggogogogogogo
+  set.seed(1) 
+  data$id <- sample(1:k, nrow(data), replace = TRUE)
+  
+  list    <- 1:k
+  # data frame reset
+  
+  
+  prediction_bm <- testset_copy_bm <- data.frame()
+  
+  #function for k fold
+  for(i in 1:k){
+    
+    # remove rows with id i from dataframe to create training set
+    # select rows with id i to create test set
+    trainset     <- subset(data, id %in% list[-i])
+    
+    testset      <- subset(data, id %in% c(i))
+    
+    #run a adaboost model
+    model_bm        <- basic_adaboost(trainset[, X_where], trainset[, y_where], n_rounds = tt)
+    
+    temp_bm         <- as.data.frame(predict(model_bm, testset))
+    
+    # 예측값을 예측 데이터 프레임의 끝에 추가.
+    prediction_bm   <- rbind(prediction_bm, temp_bm)
+    
+    # 실제값(testset) testsetCopy에 추가.
+    
+    testset_copy_bm <- rbind(testset_copy_bm, as.data.frame(testset[, y_where]))
+    
+    # 예측값과 실제값 데이터프레임.
+    # add predictions and actual Sepal Length values
+    result_bm            <- cbind(prediction_bm, testset_copy_bm[, 1])
+    
+    
+    names(result_bm)     <- c("Actual", "Predicted")
+    
+    confusion_matrix_bm  <- table(result_bm$Actual, result_bm$Predicted )
+    
+    accuracy_bm          <- sum(diag(confusion_matrix_bm)) / sum(confusion_matrix_bm)
+    
+    result_bm            <- list("confusion_matrix_bm " = confusion_matrix_bm, "accuracy_bm" = accuracy_bm)
+    
+  }  
+  temp1 <<- (result_bm$accuracy_bm)
+}
+
+show <- function(qwe){
+  kkk <<- list()
+  res_3 <- list()
+  for (i1 in 1: qwe){
+    kf2(i1)
+    result_b <<- append(result_b, temp1, after = length(result_b))
+    cat(blue(temp1)) # basic
+    cat(("\n"))
+    
+    for (i3 in 1:depth){
+      mm <<- append(mm, as.double(1 + interval * i3), after=length(mm))
+      
+      for (i2 in 1:2){
+        #res_3 <- append(res_3, adaboost(append(kkk,i2)), after = length(res_3))
+        kkk <<- append(kkk,i2)
+        res_3 <- append(res_3, kf1(i1), after = length(res_3))
+        kkk <<- kkk[1:length(kkk)-1]
+      }
+      
+      mm <<- mm[1:length(mm)-1]
+    }
+    
+
+    
+    
+    
+    
+    result_h <<- append(result_h, max(unlist(res_3)), after = length(result_h))
+    cat(red(max(unlist(res_3))))
+    cat(("\n"))
+    
+    t1 = which.max(unlist(res_3)) %/% 2 #몫
+    
+    t2 = which.max(unlist(res_3)) %% 2 #나머지
+    
+    
+    
+    
+    if(t2 == 0){
+      mm <<- append(mm, as.double(1/(1 + interval * t1)), after = length(mm))
+      kkk <<- append(kkk, 2, after = length(kkk))
+    }
+    
+    if(t2 != 0){
+      mm <<- append(mm, as.double(1 + interval * (t1+1)), after = length(mm))
+      kkk <<- append(kkk, 1, after = length(kkk))
+    }
+    
+    
+    
+    
+    res_3 <- list()
+  }  
+  cat(green("#################################"))
+  cat(("\n"))
+  cat(green("maximum heuristic accuracy"))
+  cat(("\n"))
+  cat(red(max(unlist(result_h))))
+  cat(("\n"))
+  cat(green("mean heuristic accuracy"))
+  cat(("\n"))
+  cat(red(mean(unlist(result_h))))
+  cat(("\n"))
+  cat(green("minimum heuristic accuracy"))
+  cat(("\n"))
+  cat(red(min(unlist(result_h))))
+  cat(("\n"))
+  cat(green("heuristic accuracy variance"))
+  cat(("\n"))
+  cat(red(var(unlist(result_h))))
+  cat(("\n"))
+  
+  cat(green("#################################"))
+  cat(("\n"))
+  cat(green("maximum basic accuracy"))
+  cat(("\n"))
+  cat(blue(max(unlist(result_b))))
+  cat(("\n"))
+  cat(green("mean basic accuracy"))
+  cat(("\n"))
+  cat(blue(mean(unlist(result_b))))
+  cat(("\n"))
+  cat(green("basic heuristic accuracy"))
+  cat(("\n"))
+  cat(blue(min(unlist(result_b))))
+  cat(("\n"))
+  cat(green("basic accuracy variance"))
+  cat(("\n"))
+  cat(blue(var(unlist(result_b))))
+  cat(("\n"))
+  
+  cat(green("#################################"))
+  cat(("\n"))
+  cat(((max(unlist(result_h)) - max(unlist(result_b)))*100) / max(unlist(result_b)))
+  cat(("\n"))
+  cat((mean(unlist(result_h)) - mean(unlist(result_b)))*100) / mean(unlist(result_b))
+  cat(("\n"))
+  cat((min(unlist(result_h)) - min(unlist(result_b)))*100) / min(unlist(result_b))
+  cat(("\n"))
+  
+  par(bg = "gray")
+  plot(1:how_many,result_h, col = "red", ylim = c(min(min(unlist(result_b)), min(unlist(result_h))), max(max(unlist(result_b)), max(unlist(result_h)))))
+  lines(1:how_many,result_h,col = "red")
+  par(new=TRUE)
+  plot(1:how_many,result_b,col = "blue", xlab = "", ylab = "", ylim = c(min(min(unlist(result_b)), min(unlist(result_h))), max(max(unlist(result_b)), max(unlist(result_h)))))
+  lines(1:how_many,result_b,col = "blue")
+  
+}
+
+
+system.time(show(how_many))
+
